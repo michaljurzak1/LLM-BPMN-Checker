@@ -87,6 +87,10 @@ data/*.csv
 data/*.json
 data/*.xml
 data/*.bpmn
+data/*.tar.gz
+
+# Large archive files
+data/raw/archives/BPMAI-29-10-2019.tar.gz
 
 # TODO
 TODO.md
