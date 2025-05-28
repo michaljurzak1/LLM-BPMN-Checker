@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>BPMN Viewer</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/bpmn-js@11.5.0/dist/assets/bpmn-js.css"
+    />
+    <style>
+      html,
+      body,
+      #canvas {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+      #canvas {
+        width: 100%;
+        height: 100%;
+      }
+      /* Marker-based highlight styles for bpmn-js */
+      .djs-element.highlight-added .djs-visual > * {
+        stroke: #90ee90 !important;
+        stroke-width: 4px !important;
+      }
+      .djs-element.highlight-edited .djs-visual > * {
+        stroke: #add8e6 !important;
+        stroke-width: 4px !important;
+      }
+      .djs-element.highlight-removed .djs-visual > * {
+        stroke: #ffb6c1 !important;
+        stroke-width: 4px !important;
+      }
+      #error-message {
+        color: red;
+        padding: 10px;
+        margin: 10px;
+        border: 1px solid red;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="error-message"></div>
+    <div id="canvas"></div>
+
+    <script src="https://unpkg.com/bpmn-js@11.5.0/dist/bpmn-viewer.development.js"></script>
+    <script>
+      // Create viewer instance with additional modules for better compatibility
+      const viewer = new BpmnJS({
+        container: "#canvas",
+        keyboard: {
+          bindTo: window,
+        },
+      });
+
+      // Function to show error messages
+      function showError(message) {
+        const errorDiv = document.getElementById("error-message");
+        errorDiv.textContent = message;
+        errorDiv.style.display = "block";
+        console.error(message);
+      }
+
+      // Function to load and display a BPMN diagram
+      async function loadDiagram(bpmnXML) {
+        try {
+          // Clear any previous error messages
+          document.getElementById("error-message").style.display = "none";
+
+          // Import the BPMN diagram
+          await viewer.importXML(bpmnXML);
+
+          // Fit the diagram to the viewport
+          viewer.get("canvas").zoom("fit-viewport");
+
+          // Add error handling for the viewer
+          viewer.on("error", function (event) {
+            showError("Error in BPMN viewer: " + event.error.message);
+          });
+        } catch (err) {
+          showError("Error rendering BPMN diagram: " + err.message);
+        }
+      }
+
+      // Add error handling for script loading
+      window.addEventListener(
+        "error",
+        function (event) {
+          if (event.target.tagName === "SCRIPT") {
+            showError("Error loading BPMN-js library: " + event.message);
+          }
+        },
+        true
+      );
+    </script>
+  </body>
+</html>

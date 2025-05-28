@@ -1,0 +1,3 @@
+"""
+Core BPMN functionality module
+"""
