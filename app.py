@@ -9,6 +9,7 @@ import tempfile
 from src.ai.bpmn_agent import BPMNAgent
 import logging
 from src.core.bpmn_utils import fix_signavio_process_structure
+from langchain.callbacks.streamlit import StreamlitCallbackHandler
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -323,29 +324,37 @@ with col2:
 
             with st.chat_message("assistant"):
                 message_placeholder = st.empty()
-                full_response = ""
                 needs_rerun_for_viz_update = False
 
                 with st.spinner("Thinking..."):
                     try:
+                        # Create the Streamlit callback handler with a dedicated container
+                        st_callback = StreamlitCallbackHandler(
+                            parent_container=st.container(),
+                            expand_new_thoughts=True,
+                            collapse_completed_thoughts=True
+                        )
+                        
                         agent_executor = st.session_state.bpmn_agent.create_agent(
                             st.session_state.bpmn_tools.get_tools()
                         )
-                        agent_result = agent_executor.invoke({
-                            "input": user_input,
-                            "history": st.session_state.bpmn_agent.history
-                        })
+                        
+                        # Invoke the agent with the callback
+                        agent_result = agent_executor.invoke(
+                            {"input": user_input, "history": st.session_state.bpmn_agent.history},
+                            {"callbacks": [st_callback]}
+                        )
 
                         # Update history with the result
                         st.session_state.bpmn_agent.update_history(user_input, agent_result)
                         
                         # Get the output from the result
                         output = agent_result.get("output", str(agent_result)) if isinstance(agent_result, dict) else str(agent_result)
-                        full_response = output
-
-                        # Display and store the message
-                        message_placeholder.markdown(full_response)
-                        st.session_state.messages.append({"role": "assistant", "content": full_response})
+                        
+                        st.write(output)
+                        
+                        # Store the message in history
+                        st.session_state.messages.append({"role": "assistant", "content": output})
 
                         # Check for changes made by tools and update visualization if needed
                         if st.session_state.bpmn_tools:
@@ -365,9 +374,9 @@ with col2:
                                 needs_rerun_for_viz_update = True
 
                     except Exception as e:
-                        full_response = f"Sorry, an error occurred while processing your request: {str(e)}"
-                        message_placeholder.error(full_response)
-                        st.session_state.messages.append({"role": "assistant", "content": full_response})
+                        output = f"Sorry, an error occurred while processing your request: {str(e)}"
+                        message_placeholder.error(output)
+                        st.session_state.messages.append({"role": "assistant", "content": output})
 
                 # Rerun IF AND ONLY IF the visualization needs to be updated
                 if needs_rerun_for_viz_update:

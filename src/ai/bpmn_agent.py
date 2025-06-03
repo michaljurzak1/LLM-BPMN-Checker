@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Callable
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents.format_scratchpad.openai_tools import format_to_openai_tool_messages
@@ -6,7 +6,44 @@ from langchain.agents.output_parsers.openai_tools import OpenAIToolsAgentOutputP
 from langchain.agents import AgentExecutor
 from langchain_openai import ChatOpenAI
 from langchain_community.chat_models import ChatOllama
+from langchain.callbacks.base import BaseCallbackHandler
 import os
+
+class StreamingCallbackHandler(BaseCallbackHandler):
+    """Callback handler for streaming agent steps."""
+    
+    def __init__(self, callback: Callable[[Dict[str, Any]], None]):
+        self.callback = callback
+        
+    def on_agent_action(self, action, **kwargs):
+        """Called when the agent is about to execute an action."""
+        self.callback({
+            "type": "action",
+            "tool": action.tool,
+            "tool_input": action.tool_input
+        })
+        
+    def on_tool_start(self, serialized, input_str, **kwargs):
+        """Called when a tool starts executing."""
+        self.callback({
+            "type": "tool_start",
+            "tool": serialized.get("name", "unknown"),
+            "input": input_str
+        })
+        
+    def on_tool_end(self, output, **kwargs):
+        """Called when a tool finishes executing."""
+        self.callback({
+            "type": "tool_end",
+            "output": output
+        })
+        
+    def on_agent_finish(self, finish, **kwargs):
+        """Called when the agent finishes."""
+        self.callback({
+            "type": "finish",
+            "output": finish.return_values.get("output", "")
+        })
 
 class BPMNAgent:
     def __init__(self, llm_type: str = "openai", custom_system_prompt: str = None):
@@ -68,7 +105,7 @@ Additional Guidelines:
 Your primary role is not just to comment on the diagram, but to transform it meaningfully and intelligently using the provided tools.
         """
 
-    def create_agent(self, tools: List[Any]) -> AgentExecutor:
+    def create_agent(self, tools: List[Any], callbacks: Optional[List[BaseCallbackHandler]] = None) -> AgentExecutor:
         prompt = ChatPromptTemplate.from_messages([
             ("system", self.system_prompt),
             ("user", "{input}"),
@@ -92,7 +129,8 @@ Your primary role is not just to comment on the diagram, but to transform it mea
             agent=agent,
             tools=tools,
             verbose=True,
-            return_intermediate_steps=True
+            return_intermediate_steps=True,
+            callbacks=callbacks
         )
 
     def update_history(self, query: str, result: Dict[str, Any]) -> None:
