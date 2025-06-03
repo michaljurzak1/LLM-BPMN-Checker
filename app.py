@@ -84,17 +84,18 @@ def create_visualization(bpmn_file_path, changes=None):
 def initialize_agent_and_tools(file_path: str):
     """Initialize the BPMN agent and tools with proper error handling."""
     try:
-        # Create a new BPMNTools instance with the file
-        st.session_state.bpmn_tools = BPMNTools(file_path)
+        # Initialize the agent first with custom system prompt
+        st.session_state.bpmn_agent = BPMNAgent(llm_type="openai", custom_system_prompt=st.session_state.system_prompt)
+        
+        # Create a new BPMNTools instance with the file and agent's history
+        st.session_state.bpmn_tools = BPMNTools(file_path, agent_history=st.session_state.bpmn_agent.history)
         
         # Ensure temp_filepath is initialized and exists
         if not hasattr(st.session_state.bpmn_tools, 'temp_filepath') or \
            not st.session_state.bpmn_tools.temp_filepath or \
            not Path(st.session_state.bpmn_tools.temp_filepath).exists():
-            st.session_state.bpmn_tools = BPMNTools(file_path)
+            st.session_state.bpmn_tools = BPMNTools(file_path, agent_history=st.session_state.bpmn_agent.history)
             
-        # Initialize the agent
-        st.session_state.bpmn_agent = BPMNAgent(llm_type="openai")
         return True
     except Exception as e:
         st.error(f"Failed to initialize BPMN tools or agent: {str(e)}")
@@ -102,7 +103,8 @@ def initialize_agent_and_tools(file_path: str):
 
 # Sidebar for file selection
 st.sidebar.title("BPMN File Selection")
-current_dir_path = Path(os.getcwd()) # Default to current working directory
+
+current_dir_path = Path(os.getcwd()) / "data/raw/archives/Error Models/BPMN_Error_Tasks_and_Fixes/XML" # Default to current working directory and the BPMN_Error_Tasks_and_Fixes/XML directory
 user_dir_input = st.sidebar.text_input("Directory Path", value=str(current_dir_path))
 
 if Path(user_dir_input).is_dir():
@@ -110,7 +112,6 @@ if Path(user_dir_input).is_dir():
 else:
     st.sidebar.warning("Invalid directory path. Using current working directory.")
     current_dir = str(current_dir_path)
-
 
 # Add refresh button
 if st.sidebar.button("🔄 Refresh Files"):
@@ -143,6 +144,96 @@ try:
 except Exception as e:
     st.sidebar.error(f"Error accessing directory '{current_dir}': {str(e)}")
 
+
+# Add system prompt text area
+st.sidebar.subheader("System Prompt")
+default_system_prompt = """
+You are a BPMN diagram assistant specialized in analyzing and improving business process models. 
+Your objective is to help users enhance their BPMN diagrams by proposing and executing well-reasoned, 
+standards-compliant modifications using available tools.
+
+You must always follow this structured procedure when addressing user input:
+
+1. **Understand the Diagram**  
+   - Retrieve relevant node information and structure as needed.  
+   - Get bpmn model as image to understand the diagram better.  
+   - Clarify the process flow, logic, and intent.  
+   - Identify potential issues such as bottlenecks, redundant tasks, poor sequencing, or vague elements.
+
+2. **Diagnose and Recommend**  
+   - Pinpoint specific areas for improvement.  
+   - Justify each proposed change clearly, citing process inefficiency, ambiguity, or BPMN best practices.  
+   - Ensure recommendations are grounded in business value and BPMN 2.0 compliance.
+
+3. **Modify the Diagram**  
+   - Break down each change step-by-step.  
+   - Apply concrete modifications using available tools whenever possible.
+   - Prioritize using tools that are able to modify the diagram as much as possible.
+   - If the tool is not able to modify the diagram, suggest a change to the diagram in natural language.
+   - Prioritize clarity and maintainability in the process model.
+
+4. **Validate and Conclude**  
+   - Ensure the updated structure is coherent and standards-compliant.  
+   - To ensure the updated structure is coherent and standards-compliant, get bpmn model as image and confirm the changes are correct.
+   - Summarize the business impact and rationale behind all applied changes.  
+   - Suggest any further improvements if necessary.
+
+Additional Guidelines:
+- Always act on the diagram using available tools when recommending changes.  
+- Communicate in a clear, professional, and domain-appropriate tone.  
+- Avoid vague feedback—make each suggestion actionable and technically sound.  
+- Avoid hallucinating node names or structures—always inspect the actual diagram when in doubt.
+
+Your primary role is not just to comment on the diagram, but to transform it meaningfully and intelligently using the provided tools.
+"""
+
+# Add the text area with adjustable height
+system_prompt = st.sidebar.text_area(
+    "Customize System Prompt",
+    value=default_system_prompt,
+    height=300,
+    help="Customize the system prompt that guides the AI's behavior."
+)
+
+# Add apply button
+if st.sidebar.button("Apply System Prompt"):
+    if st.session_state.bpmn_agent:
+        # Update the agent's system prompt
+        st.session_state.bpmn_agent.system_prompt = system_prompt
+        st.sidebar.success("System prompt updated!")
+    else:
+        st.sidebar.warning("Please load a BPMN file first to apply the system prompt.")
+
+# Initialize session state for system prompt if not exists
+if "system_prompt" not in st.session_state:
+    st.session_state.system_prompt = default_system_prompt
+
+# Update session state when prompt changes
+if system_prompt != st.session_state.system_prompt:
+    st.session_state.system_prompt = system_prompt
+    if st.session_state.bpmn_agent:
+        st.session_state.bpmn_agent.system_prompt = system_prompt
+        st.sidebar.success("System prompt updated!")
+
+def initialize_agent_and_tools(file_path: str):
+    """Initialize the BPMN agent and tools with proper error handling."""
+    try:
+        # Initialize the agent first with custom system prompt
+        st.session_state.bpmn_agent = BPMNAgent(llm_type="openai", custom_system_prompt=st.session_state.system_prompt)
+        
+        # Create a new BPMNTools instance with the file and agent's history
+        st.session_state.bpmn_tools = BPMNTools(file_path, agent_history=st.session_state.bpmn_agent.history)
+        
+        # Ensure temp_filepath is initialized and exists
+        if not hasattr(st.session_state.bpmn_tools, 'temp_filepath') or \
+           not st.session_state.bpmn_tools.temp_filepath or \
+           not Path(st.session_state.bpmn_tools.temp_filepath).exists():
+            st.session_state.bpmn_tools = BPMNTools(file_path, agent_history=st.session_state.bpmn_agent.history)
+            
+        return True
+    except Exception as e:
+        st.error(f"Failed to initialize BPMN tools or agent: {str(e)}")
+        return False
 
 # Main content area
 col1, col2 = st.columns([2, 1])

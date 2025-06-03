@@ -1,5 +1,5 @@
 from typing import List, Dict, Any
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents.format_scratchpad.openai_tools import format_to_openai_tool_messages
 from langchain.agents.output_parsers.openai_tools import OpenAIToolsAgentOutputParser
@@ -127,12 +127,12 @@ Your primary role is not just to comment on the diagram, but to transform it mea
                 if "Element(s):" in line:
                     current_section = "elements"
                     structured_response["elements"] = line.replace("Element(s):", "").strip()
-                elif "Issue:" in line:
+                elif "Issue(s):" in line:
                     current_section = "issue"
-                    structured_response["issue"] = line.replace("Issue:", "").strip()
-                elif "Recommended Fix:" in line:
+                    structured_response["issue"] = line.replace("Issue(s):", "").strip()
+                elif "Recommended Fix(es):" in line:
                     current_section = "recommended_fix"
-                    structured_response["recommended_fix"] = line.replace("Recommended Fix:", "").strip()
+                    structured_response["recommended_fix"] = line.replace("Recommended Fix(es):", "").strip()
                 elif current_section and line:
                     # Append to the current section if we're in one
                     structured_response[current_section] += " " + line

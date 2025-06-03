@@ -33,7 +33,7 @@ class BPMNEditorInput(BaseModel):
 
 
 class BPMNTools:
-    def __init__(self, filepath: str):
+    def __init__(self, filepath: str, agent_history: Optional[List] = None):
         self.original_filepath = filepath
         self.temp_dir = tempfile.mkdtemp()
         self.temp_filepath = os.path.join(self.temp_dir, "temp_bpmn.bpmn")
@@ -45,6 +45,7 @@ class BPMNTools:
         except Exception as e:
             raise
         
+        self.agent_history = agent_history
         self.tools = self._create_tools()
         self.changes = {
             "added": [],
@@ -119,18 +120,88 @@ class BPMNTools:
                 with open(self.temp_filepath, 'r', encoding='utf-8') as f:
                     bpmn_content = f.read()
                 
-                # Create a simple HTML wrapper for the BPMN content
+                # Create HTML content using the bpmn_viewer template
                 html_content = f"""
                 <!DOCTYPE html>
                 <html>
                 <head>
+                    <meta charset="UTF-8" />
+                    <title>BPMN Viewer</title>
+                    <link rel="stylesheet" href="https://unpkg.com/bpmn-js@11.5.0/dist/assets/bpmn-js.css" />
                     <style>
-                        body {{ margin: 0; padding: 20px; }}
-                        svg {{ width: 100%; height: 100%; }}
+                        html, body, #canvas {{
+                            height: 100%;
+                            margin: 0;
+                            padding: 0;
+                            overflow: hidden;
+                        }}
+                        #canvas {{
+                            width: 100%;
+                            height: 100%;
+                        }}
+                        .djs-element.highlight-added .djs-visual > * {{
+                            stroke: #90ee90 !important;
+                            stroke-width: 4px !important;
+                        }}
+                        .djs-element.highlight-edited .djs-visual > * {{
+                            stroke: #add8e6 !important;
+                            stroke-width: 4px !important;
+                        }}
+                        .djs-element.highlight-removed .djs-visual > * {{
+                            stroke: #ffb6c1 !important;
+                            stroke-width: 4px !important;
+                        }}
+                        #error-message {{
+                            color: red;
+                            padding: 10px;
+                            margin: 10px;
+                            border: 1px solid red;
+                            display: none;
+                        }}
                     </style>
                 </head>
                 <body>
-                    {bpmn_content}
+                    <div id="error-message"></div>
+                    <div id="canvas"></div>
+
+                    <script src="https://unpkg.com/bpmn-js@11.5.0/dist/bpmn-viewer.development.js"></script>
+                    <script>
+                        const viewer = new BpmnJS({{
+                            container: "#canvas",
+                            keyboard: {{
+                                bindTo: window,
+                            }},
+                        }});
+
+                        function showError(message) {{
+                            const errorDiv = document.getElementById("error-message");
+                            errorDiv.textContent = message;
+                            errorDiv.style.display = "block";
+                            console.error(message);
+                        }}
+
+                        async function loadDiagram(bpmnXML) {{
+                            try {{
+                                document.getElementById("error-message").style.display = "none";
+                                await viewer.importXML(bpmnXML);
+                                viewer.get("canvas").zoom("fit-viewport");
+                                viewer.on("error", function (event) {{
+                                    showError("Error in BPMN viewer: " + event.error.message);
+                                }});
+                            }} catch (err) {{
+                                showError("Error rendering BPMN diagram: " + err.message);
+                            }}
+                        }}
+
+                        window.addEventListener("error", function (event) {{
+                            if (event.target.tagName === "SCRIPT") {{
+                                showError("Error loading BPMN-js library: " + event.message);
+                            }}
+                        }}, true);
+
+                        // Load the BPMN content
+                        loadDiagram(`{bpmn_content}`);
+                    </script>
                 </body>
                 </html>
                 """
@@ -146,8 +217,8 @@ class BPMNTools:
                 
                 hti.screenshot(
                     html_file=temp_html_path,
-                    save_as="current_diagram.png",  # Save directly to the temp directory
-                    size=(800, 600)  # Set a smaller size for the image
+                    save_as="current_diagram.png",
+                    size=(800, 600)
                 )
                 
                 # Read the image file and convert to base64
@@ -162,11 +233,13 @@ class BPMNTools:
                     "data": image_data
                 }
                 
-                # Append the image as a human message
-                from langchain_core.messages import HumanMessage
-                self.editor.agent.history.append(HumanMessage(content=[{"type": "text", "text": "Here is the current BPMN diagram:"}, multimodal_message]))
+                # Only append to history if it exists
+                if self.agent_history is not None:
+                    from langchain_core.messages import HumanMessage
+                    self.agent_history.append(HumanMessage(content=[{"type": "text", "text": "Here is the current BPMN diagram:"}, multimodal_message]))
+                    return "BPMN diagram has been added to the conversation as an image."
                 
-                return "BPMN diagram has been added to the conversation as an image."
+                return "BPMN diagram has been converted to an image successfully."
                     
             except Exception as e:
                 return f"Error converting BPMN diagram to image: {str(e)}"

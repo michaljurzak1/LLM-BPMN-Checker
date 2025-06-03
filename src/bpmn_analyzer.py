@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Dict, Any
 import logging
 from dotenv import load_dotenv
 from src.ai.bpmn_agent import BPMNAgent
@@ -23,44 +23,42 @@ load_dotenv()
 
 # Custom system prompt for BPMN error detection
 BPMN_ERROR_DETECTION_PROMPT = """
-You are a BPMN Specialist LLM. Your job is to review BPMN models and recommend only the minimal, precise corrections needed. Always leverage your available BPMN validation and editing tools whenever possible; do not propose manual fixes you can automate.
+You are a BPMN Specialist LLM. Your job is to review BPMN models and identify the SINGLE most critical issue that needs to be fixed. Focus on the most impactful problem that would cause the most severe consequences if not addressed.
 
-When evaluating a diagram, consider these error categories:
+When evaluating a diagram, consider these error categories in order of priority:
 
-    Event Timing & Triggers
-    - Are start, intermediate and boundary events placed and configured correctly?
-    - Do timers, messages and conditions fire at the right moment?
+1. Deadlocks & Token Issues
+   - Are there any gateway configurations that could cause deadlocks?
+   - Are tokens properly synchronized and merged?
 
-    Gateway & Routing Logic
-    - Are splits and joins (exclusive, inclusive, parallel) used appropriately?
-    - Does each gateway clearly express its routing rules?
+2. Event Configuration
+   - Are events (start, intermediate, boundary) properly configured?
+   - Are event triggers and conditions correctly set up?
 
-    Synchronization & Merging
-    - Are parallel paths synchronized correctly before merging?
-    - Do join conditions risk deadlock or lost tokens?
+3. Gateway Logic
+   - Are gateways used appropriately for their intended purpose?
+   - Is the routing logic clear and complete?
 
-    Labeling & Naming
-    - Are all activities, events, gateways and flows named unambiguously and consistently?
-    - Do labels reflect the actual behavior or data?
+4. Process Structure
+   - Is the process flow logical and complete?
+   - Are all paths properly connected?
 
-    Decision Placement & Completeness
-    - Are business decisions located at the proper point in the flow?
-    - Are all decision outcomes fully covered (no missing branches)?
-
-    Swimlanes & Structure
-    - Do pools and lanes align with organizational roles or systems?
-    - Is the process structure clear and free of cross-lane violations?
+5. Naming & Documentation
+   - Are elements named clearly and consistently?
+   - Is the process documentation clear?
 
 Guidelines:
-    - Only suggest a change when it fixes a real defect.
-    - Reference the specific element(s) by ID or name.
-    - Prioritize automated tool actions for validation or refactoring.
-    - Keep explanations brief and actionable.
+    - Identify ONLY the most critical issue that needs immediate attention
+    - Reference specific elements by ID or name
+    - Provide a single, clear recommended fix
+    - Keep the explanation concise and actionable
 
-Your response must be structured in the following format:
-Element(s): [list the specific elements with issues]
-Issue: [describe the specific issue]
-Recommended Fix: [provide the recommended fix]
+Your response MUST follow this exact format:
+Element(s): [list ONLY the specific elements involved in the most critical issue]
+Issue(s): [describe the single most critical issue]
+Recommended Fix(es): [provide ONE clear recommended fix]
+
+Do not list multiple issues or fixes. Focus on the single most important problem that needs to be addressed first.
 """
 
 class BPMNAnalyzer:
@@ -75,20 +73,27 @@ class BPMNAnalyzer:
         try:
             logger.info(f"Analyzing file: {file_path}")
             
-            # Initialize BPMN tools for this file
-            bpmn_tools = BPMNTools(str(file_path))
+            # Initialize BPMN tools for this file with agent's history
+            bpmn_tools = BPMNTools(str(file_path), agent_history=self.agent.history)
             
             # Create agent executor with tools
             agent_executor = self.agent.create_agent(bpmn_tools.get_tools())
             
             # Reset agent history for fresh analysis
             self.agent.reset_history()
+            # Update BPMNTools history reference after reset
+            bpmn_tools.agent_history = self.agent.history
             
             # Analyze the BPMN file
             result = agent_executor.invoke({
                 "input": "Please analyze this BPMN diagram and identify any errors or issues that need to be fixed.",
                 "history": self.agent.history
             })
+            
+            # Update agent history with the result
+            self.agent.update_history("Please analyze this BPMN diagram and identify any errors or issues that need to be fixed.", result)
+            # Update BPMNTools history reference after history update
+            bpmn_tools.agent_history = self.agent.history
             
             # Get structured response
             structured_response = self.agent.get_structured_response(result)
@@ -140,7 +145,11 @@ def main():
     try:
         # Get input directory from command line or use default
         input_dir = os.getenv("BPMN_INPUT_DIR", "data/raw/archives/Error Models/BPMN_Error_Tasks_and_Fixes/XML")
-        output_file = os.getenv("BPMN_OUTPUT_FILE", "bpmn_analysis_results.xlsx")
+        # Change output file to be in the data directory
+        output_file = os.getenv("BPMN_OUTPUT_FILE", "src/bpmn_analysis_results.xlsx")
+        
+        # Ensure the output directory exists
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
         
         # Create analyzer and process files
         analyzer = BPMNAnalyzer(input_dir, output_file)
@@ -148,6 +157,9 @@ def main():
         
         logger.info("BPMN analysis completed successfully")
         
+    except PermissionError:
+        logger.error(f"Permission denied when trying to write to {output_file}. Please make sure the file is not open in another program.")
+        raise
     except Exception as e:
         logger.error(f"Error in main execution: {str(e)}")
         raise
