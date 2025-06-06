@@ -6,6 +6,7 @@ import logging
 from dotenv import load_dotenv
 from src.ai.bpmn_agent import BPMNAgent
 from src.ai.tools.bpmn_langchain_tools import BPMNTools
+from tqdm import tqdm
 
 # Configure logging
 logging.basicConfig(
@@ -23,7 +24,7 @@ load_dotenv()
 
 # Custom system prompt for BPMN error detection
 BPMN_ERROR_DETECTION_PROMPT = """
-You are a BPMN Specialist LLM. Your job is to review BPMN models and identify the SINGLE most critical issue that needs to be fixed. Focus on the most impactful problem that would cause the most severe consequences if not addressed.
+You are a BPMN Specialist LLM. Your job is to review BPMN models and identify ALL issues that need to be fixed, while maintaining a clear priority order. Focus on finding all potential problems that could impact the process execution.
 
 When evaluating a diagram, consider these error categories in order of priority:
 
@@ -48,17 +49,28 @@ When evaluating a diagram, consider these error categories in order of priority:
    - Is the process documentation clear?
 
 Guidelines:
-    - Identify ONLY the most critical issue that needs immediate attention
+    - List ALL issues found, ordered by priority (most critical first)
     - Reference specific elements by ID or name
-    - Provide a single, clear recommended fix
-    - Keep the explanation concise and actionable
+    - Provide clear recommended fixes for each issue
+    - Keep explanations concise and actionable
+    - Use the image attachment tool to get better context of the bpmn model
 
 Your response MUST follow this exact format:
-Element(s): [list ONLY the specific elements involved in the most critical issue]
-Issue(s): [describe the single most critical issue]
-Recommended Fix(es): [provide ONE clear recommended fix]
+Issues Found:
+1. [Priority Level: Critical/High/Medium/Low]
+   Element(s): [list the specific elements involved]
+   Issue: [describe the issue]
+   Recommended Fix: [provide clear recommended fix]
 
-Do not list multiple issues or fixes. Focus on the single most important problem that needs to be addressed first.
+2. [Priority Level: Critical/High/Medium/Low]
+   Element(s): [list the specific elements involved]
+   Issue: [describe the issue]
+   Recommended Fix: [provide clear recommended fix]
+
+[Continue for all issues found...]
+
+If no issues are found, respond with:
+No Issues Found: The BPMN diagram appears to be well-structured and follows best practices.
 """
 
 class BPMNAnalyzer:
@@ -77,7 +89,7 @@ class BPMNAnalyzer:
             bpmn_tools = BPMNTools(str(file_path), agent_history=self.agent.history)
             
             # Create agent executor with tools
-            agent_executor = self.agent.create_agent(bpmn_tools.get_tools())
+            agent_executor = self.agent.create_agent(bpmn_tools.get_tools(), verbose=True)
             
             # Reset agent history for fresh analysis
             self.agent.reset_history()
@@ -86,12 +98,12 @@ class BPMNAnalyzer:
             
             # Analyze the BPMN file
             result = agent_executor.invoke({
-                "input": "Please analyze this BPMN diagram and identify any errors or issues that need to be fixed.",
+                "input": "Please analyze this BPMN diagram and identify all errors or issues that need to be fixed.",
                 "history": self.agent.history
             })
             
             # Update agent history with the result
-            self.agent.update_history("Please analyze this BPMN diagram and identify any errors or issues that need to be fixed.", result)
+            self.agent.update_history("Please analyze this BPMN diagram and identify all errors or issues that need to be fixed.", result)
             # Update BPMNTools history reference after history update
             bpmn_tools.agent_history = self.agent.history
             
@@ -102,6 +114,19 @@ class BPMNAnalyzer:
             structured_response["file_name"] = file_path.name
             structured_response["file_path"] = str(file_path)
             
+            # Process multiple issues into a list format
+            if "issues" in structured_response:
+                issues_list = []
+                for issue in structured_response["issues"]:
+                    issue_data = {
+                        "priority": issue.get("priority", "Unknown"),
+                        "elements": issue.get("elements", []),
+                        "issue": issue.get("issue", ""),
+                        "recommended_fix": issue.get("recommended_fix", ""),
+                    }
+                    issues_list.append(issue_data)
+                structured_response["issues"] = issues_list
+            
             return structured_response
             
         except Exception as e:
@@ -109,9 +134,12 @@ class BPMNAnalyzer:
             return {
                 "file_name": file_path.name,
                 "file_path": str(file_path),
-                "elements": "Error during analysis",
-                "issue": str(e),
-                "recommended_fix": "Analysis failed"
+                "issues": [{
+                    "priority": "Error",
+                    "elements": "Error during analysis",
+                    "issue": str(e),
+                    "recommended_fix": "Analysis failed",
+                }]
             }
 
     def process_directory(self):
@@ -126,14 +154,34 @@ class BPMNAnalyzer:
             
             logger.info(f"Found {len(bpmn_files)} BPMN files to analyze")
             
-            # Process each file
-            for file_path in bpmn_files:
-                result = self.analyze_bpmn_file(file_path)
-                self.results.append(result)
-                logger.info(f"Completed analysis of {file_path.name}")
+            # Process each file with progress bar
+            with tqdm(total=len(bpmn_files), desc="Analyzing BPMN files", unit="file") as pbar:
+                for file_path in bpmn_files:
+                    pbar.set_description(f"Processing: {file_path.name}")
+                    result = self.analyze_bpmn_file(file_path)
+                    self.results.append(result)
+                    pbar.update(1)
+                    logger.info(f"Completed analysis of {file_path.name}")
             
+            # Create DataFrame with expanded issues
+            expanded_results = []
+            with tqdm(total=len(self.results), desc="Preparing results", unit="file") as pbar:
+                for result in self.results:
+                    file_info = {
+                        "file_name": result["file_name"],
+                        "file_path": result["file_path"]
+                    }
+                    
+                    if "issues" in result:
+                        for issue in result["issues"]:
+                            row = {**file_info, **issue}
+                            expanded_results.append(row)
+                    else:
+                        expanded_results.append(file_info)
+                    pbar.update(1)
+                                
             # Create DataFrame and save results
-            df = pd.DataFrame(self.results)
+            df = pd.DataFrame(expanded_results)
             df.to_excel(self.output_file, index=False)
             logger.info(f"Results saved to {self.output_file}")
             

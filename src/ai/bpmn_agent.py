@@ -8,6 +8,9 @@ from langchain_openai import ChatOpenAI
 from langchain_community.chat_models import ChatOllama
 from langchain.callbacks.base import BaseCallbackHandler
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 class StreamingCallbackHandler(BaseCallbackHandler):
     """Callback handler for streaming agent steps."""
@@ -105,7 +108,7 @@ Additional Guidelines:
 Your primary role is not just to comment on the diagram, but to transform it meaningfully and intelligently using the provided tools.
         """
 
-    def create_agent(self, tools: List[Any], callbacks: Optional[List[BaseCallbackHandler]] = None) -> AgentExecutor:
+    def create_agent(self, tools: List[Any], callbacks: Optional[List[BaseCallbackHandler]] = None, verbose: bool = True) -> AgentExecutor:
         prompt = ChatPromptTemplate.from_messages([
             ("system", self.system_prompt),
             ("user", "{input}"),
@@ -128,7 +131,7 @@ Your primary role is not just to comment on the diagram, but to transform it mea
         return AgentExecutor(
             agent=agent,
             tools=tools,
-            verbose=True,
+            verbose=verbose,
             return_intermediate_steps=True,
             callbacks=callbacks
         )
@@ -141,41 +144,81 @@ Your primary role is not just to comment on the diagram, but to transform it mea
         """Reset the conversation history."""
         self.history = []
 
-    def get_structured_response(self, result: Dict[str, Any]) -> Dict[str, str]:
+    def get_structured_response(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Extract structured response from the agent's output."""
         output = result.get("output", "")
         
-        # Initialize default values
+        # Initialize response structure
         structured_response = {
-            "elements": "Not specified",
-            "issue": "Not specified",
-            "recommended_fix": "Not specified"
+            "issues": []
         }
         
         try:
+            # Check if no issues were found
+            if "No Issues Found:" in output:
+                return structured_response
+            
             # Split the output into sections
             sections = output.split("\n")
+            current_issue = None
             current_section = None
             
             for line in sections:
                 line = line.strip()
                 if not line:
                     continue
+                
+                # Check for new issue number
+                if line[0].isdigit() and "." in line:
+                    if current_issue:
+                        structured_response["issues"].append(current_issue)
                     
-                if "Element(s):" in line:
-                    current_section = "elements"
-                    structured_response["elements"] = line.replace("Element(s):", "").strip()
-                elif "Issue(s):" in line:
-                    current_section = "issue"
-                    structured_response["issue"] = line.replace("Issue(s):", "").strip()
-                elif "Recommended Fix(es):" in line:
-                    current_section = "recommended_fix"
-                    structured_response["recommended_fix"] = line.replace("Recommended Fix(es):", "").strip()
-                elif current_section and line:
-                    # Append to the current section if we're in one
-                    structured_response[current_section] += " " + line
+                    # Start new issue
+                    current_issue = {
+                        "priority": "Unknown",
+                        "elements": [],
+                        "issue": "",
+                        "recommended_fix": ""
+                    }
                     
-        except Exception as e:
-            print(f"Error parsing structured response: {e}")
+                    # Extract priority if present
+                    if "Priority Level:" in line:
+                        priority = line.split("Priority Level:")[1].strip()
+                        current_issue["priority"] = priority
+                    continue
+                
+                # Process sections within an issue
+                if current_issue is not None:
+                    if "Element(s):" in line:
+                        current_section = "elements"
+                        elements = line.replace("Element(s):", "").strip()
+                        current_issue["elements"] = [e.strip() for e in elements.split(",")]
+                    elif "Issue:" in line:
+                        current_section = "issue"
+                        current_issue["issue"] = line.replace("Issue:", "").strip()
+                    elif "Recommended Fix:" in line:
+                        current_section = "recommended_fix"
+                        current_issue["recommended_fix"] = line.replace("Recommended Fix:", "").strip()
+                    elif current_section and line:
+                        # Append to the current section if we're in one
+                        if current_section == "elements":
+                            current_issue["elements"].extend([e.strip() for e in line.split(",")])
+                        else:
+                            current_issue[current_section] += " " + line
             
-        return structured_response
+            # Add the last issue if exists
+            if current_issue:
+                structured_response["issues"].append(current_issue)
+            
+            return structured_response
+            
+        except Exception as e:
+            logger.error(f"Error parsing structured response: {str(e)}")
+            return {
+                "issues": [{
+                    "priority": "Error",
+                    "elements": ["Error during parsing"],
+                    "issue": f"Failed to parse response: {str(e)}",
+                    "recommended_fix": "Please check the raw output for details"
+                }]
+            }
