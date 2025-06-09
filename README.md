@@ -54,6 +54,20 @@ streamlit run app.py
    - Apply suggested improvements
    - Manually edit the model
 
+### Running as a Module
+
+You can also run the BPMN analyzer and fix applier modules directly from the command line for `bpmn_analysis_results.xlsx` results
+
+```bash
+# Run the BPMN analyzer
+python -m src.bpmn_analyzer
+```
+
+```bash
+# Run the BPMN fix applier
+python -m src.bpmn_fix_applier
+```
+
 ## Project Structure
 
 ```
@@ -77,7 +91,7 @@ LLM-BPMN-Checker/
 - matplotlib: Visualization
 - langchain: LLM integration
 - streamlit: Web interface
-- openai: LLM API
+- openai: LLM API that uses OPENAI_BPMN_API_KEY environmental variable
 - Additional utilities for image processing and visualization
 
 ## Development
@@ -89,11 +103,3 @@ The project is actively being developed with the following features in progress:
 - Interactive model correction interface
 - Visual highlighting of model changes
 - User acceptance workflow for LLM-suggested changes
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-[Add your license information here]
