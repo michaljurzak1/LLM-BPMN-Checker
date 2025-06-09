@@ -20,7 +20,7 @@ git clone https://github.com/michaljurzak1/LLM-BPMN-Checker.git
 cd LLM-BPMN-Checker
 ```
 
-2. Create and activate a virtual environment:
+2. Create and activate a virtual environment with uv or pip:
 
 ```bash
 uv venv

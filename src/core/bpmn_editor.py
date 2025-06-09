@@ -94,7 +94,7 @@ class BPMNEditor:
 
     def remove_nodes(self, node_ids: List[str]) -> None:
         """Remove multiple nodes from the BPMN diagram.
-        
+
         This function handles removal of nodes and their nested elements properly.
         It will:
         1. Remove the node from its parent element
@@ -115,28 +115,34 @@ class BPMNEditor:
             if node is not None:
                 # Add tag for highlighting before removing
                 node.set("data-element-status", "removed")
-                
+
                 # Get the parent element
                 parent = node.getparent()
                 if parent is not None:
                     # Remove the node from its parent
                     parent.remove(node)
-                    
+
                     # If this was an event, also remove any event definitions
-                    if node.tag.endswith('Event'):
+                    if node.tag.endswith("Event"):
                         # Find and remove any event definitions
-                        for event_def in self.root.findall(f'.//*[@id="{node_id}"]//*', self.namespaces):
+                        for event_def in self.root.findall(
+                            f'.//*[@id="{node_id}"]//*', self.namespaces
+                        ):
                             if event_def.getparent() is not None:
                                 event_def.getparent().remove(event_def)
 
             # Remove from lanes
             for lane in self.root.findall(".//bpmn:lane", self.namespaces):
-                for flow_node_ref in lane.findall(".//bpmn:flowNodeRef", self.namespaces):
+                for flow_node_ref in lane.findall(
+                    ".//bpmn:flowNodeRef", self.namespaces
+                ):
                     if flow_node_ref.text == node_id:
                         lane.remove(flow_node_ref)
 
             # Remove shape and any associated edges
-            shape = self.root.find(f'.//bpmndi:BPMNShape[@bpmnElement="{node_id}"]', self.namespaces)
+            shape = self.root.find(
+                f'.//bpmndi:BPMNShape[@bpmnElement="{node_id}"]', self.namespaces
+            )
             if shape is not None:
                 shape.set("data-element-status", "removed")
                 shape.getparent().remove(shape)
@@ -145,7 +151,10 @@ class BPMNEditor:
             for edge in self.root.findall(".//bpmndi:BPMNEdge", self.namespaces):
                 if edge.get("bpmnElement") is not None:
                     flow = self.root.find(f'.//*[@id="{edge.get("bpmnElement")}"]')
-                    if flow is not None and (flow.get("sourceRef") == node_id or flow.get("targetRef") == node_id):
+                    if flow is not None and (
+                        flow.get("sourceRef") == node_id
+                        or flow.get("targetRef") == node_id
+                    ):
                         # Remove the edge
                         edge.getparent().remove(edge)
                         # Remove the flow
@@ -158,18 +167,39 @@ class BPMNEditor:
     def edit_nodes(self, node_updates: List[Dict[str, str]]) -> None:
         """Edit multiple nodes in the BPMN diagram.
 
+        This function allows editing of node attributes and types.
+        Example:
+            node_updates = [
+                {"node_id": "Task_1", "type": "parallelGateway", "name": "New Task Name"},
+                {"node_id": "Event_2", "name": "Updated Event Name"}
+            ]
+            editor.edit_nodes(node_updates)
+
         Args:
             node_updates: List of dictionaries containing:
                 - node_id: ID of the node to edit
-                - new_name: New name for the node
+                - type: (optional) new BPMN type (e.g., 'parallelGateway').
+                  IMPORTANT: The value for 'type' must NOT include a namespace prefix (e.g., use 'parallelGateway', not 'bpmn:parallelGateway').
+                - any other key-value pairs to update as attributes
         """
         for update in node_updates:
-            node = self.root.find(f'.//*[@id="{update["node_id"]}"]')
+            node_id = update.get("node_id")
+            if not node_id:
+                continue
+            node = self.root.find(f'.//*[@id="{node_id}"]')
             if node is not None:
-                node.set("name", update["new_name"])
+                # Change the tag/type if requested
+                if "type" in update:
+                    # Get the namespace from the current tag
+                    ns = node.tag.split("}")[0] + "}"
+                    node.tag = f"{ns}{update['type']}"
+                for attr, value in update.items():
+                    if attr in ("node_id", "type"):
+                        continue
+                    node.set(attr, str(value))
                 # Add tag for highlighting
                 node.set("data-element-status", "modified")
-                self.changes["modified"].add(update["node_id"])
+                self.changes["modified"].add(node_id)
 
     # def edit_node(self, node_id: str, new_name: str) -> None:
     #     """Edit a single node's name in the BPMN diagram."""

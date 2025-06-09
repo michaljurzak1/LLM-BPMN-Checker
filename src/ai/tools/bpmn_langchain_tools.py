@@ -6,7 +6,9 @@ import tempfile
 import shutil
 import os
 import base64
-from html2image import Html2Image # Configure logging with minimal format and INFO level
+from html2image import (
+    Html2Image,
+)  # Configure logging with minimal format and INFO level
 
 
 class BPMNEditorInput(BaseModel):
@@ -39,19 +41,15 @@ class BPMNTools:
         self.temp_filepath = os.path.join(self.temp_dir, "temp_bpmn.bpmn")
         # Copy original file to temp location
         shutil.copy2(filepath, self.temp_filepath)
-        
+
         try:
             self.editor = BPMNEditor(self.temp_filepath)
         except Exception as e:
             raise
-        
+
         self.agent_history = agent_history
         self.tools = self._create_tools()
-        self.changes = {
-            "added": [],
-            "edited": [],
-            "removed": []
-        }
+        self.changes = {"added": [], "edited": [], "removed": []}
         # Initialize ID mapping
         self._init_id_mapping()
 
@@ -60,19 +58,19 @@ class BPMNTools:
         self.id_mapping = {}
         self.reverse_mapping = {}
         self.type_counters = {}
-        
+
         # Get all nodes and create simplified IDs
         nodes = self.editor.get_all_nodes()
         for node in nodes:
-            node_type = node['type']
+            node_type = node["type"]
             if node_type not in self.type_counters:
                 self.type_counters[node_type] = 0
             self.type_counters[node_type] += 1
-            
+
             # Create simplified ID (e.g., "task_1", "gateway_2", etc.)
             simplified_id = f"{node_type}_{self.type_counters[node_type]}"
-            self.id_mapping[node['id']] = simplified_id
-            self.reverse_mapping[simplified_id] = node['id']
+            self.id_mapping[node["id"]] = simplified_id
+            self.reverse_mapping[simplified_id] = node["id"]
 
     def _convert_to_simplified_ids(self, data: Any) -> Any:
         """Convert internal IDs to simplified IDs in the data structure."""
@@ -96,7 +94,7 @@ class BPMNTools:
 
     def _create_tools(self) -> List[Any]:
         """Create LangChain tools for BPMN operations."""
-        
+
         @tool("get_all_nodes")
         def get_all_nodes() -> str:
             """Get information about all nodes in a BPMN diagram."""
@@ -112,14 +110,14 @@ class BPMNTools:
                 # Create a temporary directory for the image if it doesn't exist
                 temp_img_dir = os.path.join(self.temp_dir, "images")
                 os.makedirs(temp_img_dir, exist_ok=True)
-                
+
                 # Generate image from the current BPMN file
                 temp_img_path = os.path.join(temp_img_dir, "current_diagram.png")
-                
+
                 # Read the BPMN file content
-                with open(self.temp_filepath, 'r', encoding='utf-8') as f:
+                with open(self.temp_filepath, "r", encoding="utf-8") as f:
                     bpmn_content = f.read()
-                
+
                 # Create HTML content using the bpmn_viewer template
                 html_content = f"""
                 <!DOCTYPE html>
@@ -205,49 +203,62 @@ class BPMNTools:
                 </body>
                 </html>
                 """
-                
+
                 # Save HTML content to a temporary file
                 temp_html_path = os.path.join(temp_img_dir, "temp.html")
-                with open(temp_html_path, 'w', encoding='utf-8') as f:
+                with open(temp_html_path, "w", encoding="utf-8") as f:
                     f.write(html_content)
-                
+
                 # Use html2image to convert HTML to image
                 hti = Html2Image()
                 hti.output_path = temp_img_dir
-                
+
                 hti.screenshot(
                     html_file=temp_html_path,
                     save_as="current_diagram.png",
-                    size=(800, 600)
+                    size=(800, 600),
                 )
-                
+
                 # Read the image file and convert to base64
                 with open(temp_img_path, "rb") as image_file:
                     image_data = base64.b64encode(image_file.read()).decode("utf-8")
-                
+
                 # Create the multimodal message
                 multimodal_message = {
                     "type": "image",
                     "source_type": "base64",
                     "mime_type": "image/png",
-                    "data": image_data
+                    "data": image_data,
                 }
-                
+
                 # Only append to history if it exists
                 if self.agent_history is not None:
                     from langchain_core.messages import HumanMessage
-                    self.agent_history.append(HumanMessage(content=[{"type": "text", "text": "Here is the current BPMN diagram:"}, multimodal_message]))
-                    return "BPMN diagram has been added to the conversation as an image."
-                
+
+                    self.agent_history.append(
+                        HumanMessage(
+                            content=[
+                                {
+                                    "type": "text",
+                                    "text": "Here is the current BPMN diagram:",
+                                },
+                                multimodal_message,
+                            ]
+                        )
+                    )
+                    return (
+                        "BPMN diagram has been added to the conversation as an image."
+                    )
+
                 return "BPMN diagram has been converted to an image successfully."
-                    
+
             except Exception as e:
                 return f"Error converting BPMN diagram to image: {str(e)}"
 
         @tool("add_tasks")
         def add_tasks(tasks: List[Dict[str, Any]]) -> str:
             """Add multiple tasks to a BPMN diagram.
-            
+
             Args:
                 tasks: List of tasks to add, each containing name, optional lane_id, and optional position
             """
@@ -263,7 +274,7 @@ class BPMNTools:
         @tool("remove_nodes")
         def remove_nodes(node_ids: List[str]) -> str:
             """Remove multiple nodes from a BPMN diagram.
-            
+
             Args:
                 node_ids: List of node IDs to remove
             """
@@ -277,24 +288,38 @@ class BPMNTools:
 
         @tool("edit_nodes")
         def edit_nodes(node_updates: List[Dict[str, str]]) -> str:
-            """Edit multiple nodes' names in a BPMN diagram.
-            
+            """Edit multiple nodes' attributes in a BPMN diagram.
+
             Args:
-                node_updates: List of node updates, each containing node_id and new_name
+            node_updates: List of node updates, each is a dict with string keys and string values.
+                      Must include "node_id" and any other fields to update.
             """
             if not node_updates:
                 raise ValueError("At least one node update is required")
-            internal_updates = self._convert_to_internal_ids(node_updates)
-            self.editor.edit_nodes(internal_updates)
-            self.editor.save()
-            edited_ids = [update["node_id"] for update in node_updates]
-            self.changes["edited"].extend(edited_ids)
-            return f"Updated {len(node_updates)} nodes"
+            try:
+                # Convert node_ids to internal IDs, but keep other fields as is
+                internal_updates = []
+                for update in node_updates:
+                    update_copy = update.copy()
+                    if "node_id" in update_copy:
+                        update_copy["node_id"] = self._convert_to_internal_ids(
+                            update_copy["node_id"]
+                        )
+                    internal_updates.append(update_copy)
+                self.editor.edit_nodes(internal_updates)
+                self.editor.save()
+                edited_ids = [
+                    update["node_id"] for update in node_updates if "node_id" in update
+                ]
+                self.changes["edited"].extend(edited_ids)
+                return f"Updated {len(node_updates)} nodes"
+            except Exception as e:
+                return f"Error editing nodes: {str(e)}"
 
         @tool("add_sequence_flows")
         def add_sequence_flows(flows: List[Dict[str, str]]) -> str:
             """Add multiple sequence flows between nodes in a BPMN diagram.
-            
+
             Args:
                 flows: List of flows to add, each containing source_id and target_id
             """
@@ -303,13 +328,15 @@ class BPMNTools:
             internal_flows = self._convert_to_internal_ids(flows)
             flow_ids = self.editor.add_sequence_flows(internal_flows)
             self.editor.save()
-            self.changes["added"].extend([self.id_mapping.get(id, id) for id in flow_ids])
+            self.changes["added"].extend(
+                [self.id_mapping.get(id, id) for id in flow_ids]
+            )
             return f"Added {len(flow_ids)} sequence flows with IDs: {', '.join(self._convert_to_simplified_ids(flow_ids))}"
 
         @tool("get_node_info")
         def get_node_info(node_id: str) -> str:
             """Get information about a specific node in a BPMN diagram.
-            
+
             Args:
                 node_id: ID of a single node to get info about
             """
@@ -327,7 +354,7 @@ class BPMNTools:
             edit_nodes,
             add_sequence_flows,
             get_node_info,
-            get_bpmn_as_image
+            get_bpmn_as_image,
         ]
 
         return tools_
@@ -354,6 +381,7 @@ class BPMNTools:
             shutil.rmtree(self.temp_dir)
         except (OSError, FileNotFoundError):
             pass
+
 
 # def get_bpmn_tools() -> List[Any]:
 #     """Get all BPMN editing tools."""
