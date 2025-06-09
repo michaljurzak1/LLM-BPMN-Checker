@@ -2,6 +2,8 @@
 
 A tool for analyzing and improving BPMN models using Large Language Models (LLMs). This project provides a web interface for visualizing BPMN models and uses LLMs to detect and correct issues in the models.
 
+<img src="projectUI.png" alt="project UI" width="700"/>
+
 ## Features
 
 - BPMN model visualization and analysis
